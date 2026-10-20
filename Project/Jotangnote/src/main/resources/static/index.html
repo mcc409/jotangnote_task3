@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>JotangNote</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { display: flex; height: 100vh; background-color: #1e1e1e; color: #d4d4d4; overflow: hidden; }
+
+        /* 左侧笔记区 */
+        .notes-section { flex: 2; display: flex; flex-direction: column; border-right: 1px solid #333; }
+        .header { padding: 20px; background-color: #252526; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 20px; color: #569cd6; }
+
+        .note-input-area { padding: 15px; background-color: #252526; border-bottom: 1px solid #333; display: flex; gap: 10px; }
+        .note-input-area input { flex: 1; padding: 10px; background: #333; border: 1px solid #444; color: #fff; border-radius: 4px; outline: none; }
+        .note-input-area button { padding: 10px 20px; background: #0e639c; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .note-input-area button:hover { background: #1177bb; }
+
+        .notes-list { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .note-card { background: #2d2d2d; padding: 15px; border-radius: 6px; border: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
+        .note-card .content { flex: 1; }
+        .note-card .meta { font-size: 12px; color: #888; margin-top: 5px; }
+        .note-card .actions button { padding: 5px 10px; margin-left: 10px; background: transparent; border: 1px solid #666; color: #ccc; border-radius: 4px; cursor: pointer; }
+        .note-card .actions button:hover { background: #444; }
+        .note-card .actions .del-btn:hover { border-color: #f48771; color: #f48771; }
+
+        /* 右侧聊天区 */
+        .chat-section { flex: 1; display: flex; flex-direction: column; background-color: #181818; }
+        .chat-header { padding: 20px; background-color: #252526; border-bottom: 1px solid #333; text-align: center; font-weight: bold; color: #4ec9b0; }
+        .chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .msg { max-width: 80%; padding: 10px 15px; border-radius: 8px; line-height: 1.5; font-size: 14px; }
+        .msg.user { align-self: flex-end; background-color: #0e639c; color: white; border-bottom-right-radius: 0; }
+        .msg.ai { align-self: flex-start; background-color: #333; color: #eee; border-bottom-left-radius: 0; }
+
+        .chat-input-area { padding: 15px; background-color: #252526; display: flex; gap: 10px; border-top: 1px solid #333; }
+        .chat-input-area input { flex: 1; padding: 10px; background: #333; border: 1px solid #444; color: #fff; border-radius: 20px; outline: none; }
+        .chat-input-area button { padding: 10px 20px; background: #4ec9b0; color: #1e1e1e; font-weight: bold; border: none; border-radius: 20px; cursor: pointer; }
+        .chat-input-area button:hover { background: #3bb89f; }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e1e1e; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body>
+
+<!-- 左侧：笔记管理 -->
+<div class="notes-section">
+    <div class="header">
+        <h1>📝 JotangNote 笔记管理</h1>
+    </div>
+    <div class="note-input-area">
+        <input type="text" id="note-input" placeholder="写点什么新笔记..." onkeypress="if(event.key==='Enter') createNote()">
+        <button onclick="createNote()">发布笔记</button>
+    </div>
+    <div class="notes-list" id="notes-list">
+        <!-- 笔记列表将在这里渲染 -->
+    </div>
+</div>
+
+<!-- 右侧：AI 助手 -->
+<div class="chat-section">
+    <div class="chat-header">🤖 JotangNote AI 助手</div>
+    <div class="chat-box" id="chat-box">
+        <div class="msg ai">你好！我是 JotangNote 的 AI 助手。你可以让我帮你查询笔记内容，比如对我说：“查一下 id 为 1 的笔记”。</div>
+    </div>
+    <div class="chat-input-area">
+        <input type="text" id="chat-input" placeholder="和 AI 聊聊天..." onkeypress="if(event.key==='Enter') sendChat()">
+        <button onclick="sendChat()">发送</button>
+    </div>
+</div>
+
+<script>
+    // 模拟已登录用户 ID
+    const CURRENT_USER_ID = 1;
+    // 模拟当前会话 ID
+    const SESSION_ID = "web_user_" + CURRENT_USER_ID;
+
+    // ================= 笔记功能 =================
+
+    // 加载所有笔记
+    async function loadNotes() {
+        try {
+            const res = await fetch('/api/notes');
+            const notes = await res.json();
+            const list = document.getElementById('notes-list');
+            list.innerHTML = '';
+
+            if(notes.length === 0) {
+                list.innerHTML = '<div style="color:#888; text-align:center; margin-top:20px;">暂无笔记，快去发布一篇吧！</div>';
+                return;
+            }
+
+            notes.forEach(note => {
+                const div = document.createElement('div');
+                div.className = 'note-card';
+                div.innerHTML = `
+                        <div class="content">
+                            <div>${note.content}</div>
+                            <div class="meta">ID: ${note.id} | 作者ID: ${note.userId}</div>
+                        </div>
+                        <div class="actions">
+                            <button class="del-btn" onclick="deleteNote(${note.id})">删除</button>
+                        </div>
+                    `;
+                list.appendChild(div);
+            });
+        } catch (e) {
+            console.error("加载笔记失败", e);
+        }
+    }
+
+    // 新增笔记
+    async function createNote() {
+        const input = document.getElementById('note-input');
+        const content = input.value.trim();
+        if (!content) return;
+
+        try {
+            await fetch('/api/notes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'userId': CURRENT_USER_ID
+                },
+                body: JSON.stringify({ content: content })
+            });
+            input.value = '';
+            // 因为用了 RabbitMQ 异步处理，稍微等一下再刷新列表
+            setTimeout(loadNotes, 500);
+        } catch (e) {
+            alert("创建失败");
+        }
+    }
+
+    // 删除笔记
+    async function deleteNote(id) {
+        if (!confirm('确定要删除这篇笔记吗？')) return;
+        try {
+            await fetch('/api/notes/' + id, {
+                method: 'DELETE',
+                headers: { 'userId': CURRENT_USER_ID }
+            });
+            setTimeout(loadNotes, 500);
+        } catch (e) {
+            alert("删除失败");
+        }
+    }
+
+    // ================= AI 聊天功能 =================
+
+    // 发送聊天
+    async function sendChat() {
+        const input = document.getElementById('chat-input');
+        const message = input.value.trim();
+        if (!message) return;
+
+        // 1. 显示用户消息
+        appendMsg(message, 'user');
+        input.value = '';
+
+        // 2. 显示“正在思考”动画
+        const loadingMsg = appendMsg('...', 'ai');
+
+        try {
+            // 3. 发送请求给后端
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: SESSION_ID,
+                    message: message
+                })
+            });
+
+            const reply = await res.text();
+
+            // 4. 替换为 AI 真实的回复
+            loadingMsg.innerText = reply;
+        } catch (e) {
+            loadingMsg.innerText = "出错了，请检查后端是否正常运行。";
+        }
+    }
+
+    // 添加消息到聊天框
+    function appendMsg(text, role) {
+        const box = document.getElementById('chat-box');
+        const div = document.createElement('div');
+        div.className = 'msg ' + role;
+        div.innerText = text;
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight; // 自动滚动到底部
+        return div;
+    }
+
+    // 页面加载完成后立即加载笔记列表
+    window.onload = loadNotes;
+</script>
+</body>
+</html>
